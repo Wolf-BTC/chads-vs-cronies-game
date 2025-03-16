@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chads vs. Cronies</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #000;
+            overflow: hidden;
+        }
+        #game-container {
+            width: 900px;
+            height: 600px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Phaser canvas will be injected here -->
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script>
+        console.log("Script loaded");
+        // Debug: Check for window.ethereum before game starts
+        if (window.ethereum) {
+            console.warn("window.ethereum is present, possibly from an extension like MetaMask. This may cause conflicts.");
+            console.log("window.ethereum:", window.ethereum);
+        } else {
+            console.log("No window.ethereum detected.");
+        }
+
+        let hexGrid = [];
+        let hexDrops = [];
+        let plants = [];
+        let zombies = [];
+        let waves = [];
+        let hexCurrency = 0;
+        let rateHikeActive = false;
+        let rateHikeStart = 0;
+        const RATE_HIKE_DURATION = 5000;
+        let selectedPlant = null;
+        let currentFlashTween = null;
+        let inflationTexts = [];
+        let waveCount = 0;
+        let firstZombieSpawned = false;
+        let gameOver = false;
+        let gameWon = false;
+        let resultText = null;
+        let hasJeromeSpawned = false;
+        let waveText = null;
+        let stageText = null;
+        let victoryText = null;
+        let stageVictoryText = null;
+        let gameOverImage = null;
+        let uiGraphics = null;
+        const VICTORY_DISPLAY_TIME = 2000;
+        let currentStage = 1;
+        let plantUnlocks = { swag: false };
+        let difficulty = 'Normal';
+        class StartScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'StartScene' });
+                console.log("StartScene constructor called");
+            }
+
+            create() {
+                console.log("StartScene create called");
+
+                const graphics = this.add.graphics();
+                graphics.fillStyle(0x000000, 0.8);
+                graphics.fillRect(0, 0, 900, 600);
+
+                const gameTitle = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 100, "Chads vs. Cronies", {
+                    fontSize: '64px',
+                    color: '#8000ff',
+                    fontStyle: 'bold',
+                    stroke: '#ffffff',
+                    strokeThickness: 5,
+                    shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
+                }).setOrigin(0.5);
+                console.log("Game title added");
+
+                const difficultyText = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 20, "Select Difficulty:", {
+                    fontSize: '32px',
+                    color: '#ffffff',
+                    fontStyle: 'bold'
+                }).setOrigin(0.5);
+
+                const easyButton = this.add.text(this.cameras.main.centerX - 200, this.cameras.main.centerY + 40, 'Easy', {
+                    fontSize: '28px',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                    backgroundColor: '#00ff00',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+                const normalButton = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY + 40, 'Normal', {
+                    fontSize: '28px',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                    backgroundColor: '#ff8c00',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+                const hardButton = this.add.text(this.cameras.main.centerX + 200, this.cameras.main.centerY + 40, 'Hard', {
+                    fontSize: '28px',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                    backgroundColor: '#ff0000',
+                    padding: { x: 20, y: 10 }
+                }).setOrigin(0.5).setInteractive();
+
+                [easyButton, normalButton, hardButton].forEach(button => {
+                    button.on('pointerover', () => button.setStyle({ color: '#ffd700' }));
+                    button.on('pointerout', () => button.setStyle({ color: '#ffffff' }));
+                    button.on('pointerdown', () => {
+                        difficulty = button.text;
+                        console.log(`Selected difficulty: ${difficulty}`);
+                        this.scene.start('GameScene');
+                    });
+                });
+
+                this.tweens.add({
+                    targets: [gameTitle, difficultyText, easyButton, normalButton, hardButton],
+                    scale: 1.05,
+                    duration: 1000,
+                    yoyo: true,
+                    repeat: -1
+                });
+            }
+        }
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super({ key: 'GameScene' });
+                console.log("GameScene constructor called");
+                this.richardPlantSelect = null;
+                this.trumpPlantSelect = null;
+                this.elonPlantSelect = null;
+                this.swagPlantSelect = null;
+                this.hexCurrencyText = null;
+                this.creditText = null;
+                this.panosLink = null;
+                this.gameTitleText = null;
+                this.plantOffsetX = 0;
+                this.tileWidth = 60;
+                this.stageWaveCounter = 0;
+                this.hexDropEvent = null;
+                this.zombieSpawnEvent = null;
+                this.currentSpawnDelayMin = 5000;
+                this.currentSpawnDelayMax = 10000;
+                // Sound variables
+                this.coinSound = null;
+                this.eatSound = null;
+                this.plantPlaceSound = null;
+                this.richardShootSound = null;
+                this.trumpShootSound = null;
+                this.elonShootSound = null;
+                this.swagShootSound = null;
+                this.zombieDieSound = null;
+                this.gameOverSound = null;
+                this.victorySound = null;
+                this.activeEatSounds = new Map(); // Track active eating sounds per zombie
+                this.vaultY = 0; // Added as class property to fix ReferenceError
+            }
+            preload() {
+                console.log("GameScene preload called");
+                // Load images
+                this.load.image('hexDrop', 'assets/hex_drop.png');
+                this.load.image('garyDrop', 'assets/garyDrop.png');
+                this.load.image('sbfDrop', 'assets/sbfDrop.png');
+                this.load.image('warrenDrop', 'assets/warrenDrop.png');
+                this.load.image('powellDrop', 'assets/powellDrop.png');
+                this.load.image('richardPlant', 'assets/richard_plant.png');
+                this.load.image('trumpPlant', 'assets/trumpPlant.png');
+                this.load.image('elonPlant', 'assets/elonPlant.png');
+                this.load.image('swag', 'assets/swag.png');
+                this.load.image('garyZombie', 'assets/garyZombie.png');
+                this.load.image('sbfZombie', 'assets/sbfZombie.png');
+                this.load.image('warrenZombie', 'assets/warrenZombie.png');
+                this.load.image('powellZombie', 'assets/powellZombie.png');
+                this.load.image('bossZombie', 'assets/bossZombie.png');
+                this.load.image('newWave', 'assets/new_wave.png');
+                this.load.image('hamburgerWave', 'assets/hamburgerWave.png');
+                this.load.image('rocketWave', 'assets/rocketWave.png');
+                this.load.image('swagWave', 'assets/swagWave.png');
+                this.load.image('newVault', 'assets/new_vault.png');
+                this.load.image('richardCry', 'assets/richardCry.png');
+                // Load existing audio
+                this.load.audio('coin_collect', 'assets/coin_collect.mp3');
+                this.load.audio('zombie_eat', 'assets/zombie_eat.mp3');
+                this.load.audio('silent', 'assets/silent.mp3');
+                // Load new audio
+                this.load.audio('plant_place', 'assets/plant_place.mp3');
+                this.load.audio('richard_shoot', 'assets/richard_shoot.mp3');
+                this.load.audio('trump_shoot', 'assets/trump_shoot.mp3');
+                this.load.audio('elon_shoot', 'assets/elon_shoot.mp3');
+                this.load.audio('swag_shoot', 'assets/swag_shoot.mp3');
+                this.load.audio('zombie_die', 'assets/zombie_die.mp3');
+                this.load.audio('game_over', 'assets/game_over.mp3');
+                this.load.audio('victory', 'assets/victory.mp3');
+
+                // Load event listeners for debugging
+                this.load.on('filecomplete-image-swagWave', () => {
+                    console.log("swagWave image loaded successfully during preload");
+                });
+                this.load.on('filecomplete-image-newVault', () => {
+                    console.log("newVault image loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-coin_collect', () => {
+                    console.log("Coin collect sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-zombie_eat', () => {
+                    console.log("Zombie eat sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-silent', () => {
+                    console.log("Silent sound loaded successfully for audio context warm-up");
+                });
+                this.load.on('filecomplete-audio-plant_place', () => {
+                    console.log("Plant place sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-richard_shoot', () => {
+                    console.log("Richard shoot sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-trump_shoot', () => {
+                    console.log("Trump shoot sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-elon_shoot', () => {
+                    console.log("Elon shoot sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-swag_shoot', () => {
+                    console.log("Swag shoot sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-zombie_die', () => {
+                    console.log("Zombie die sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-game_over', () => {
+                    console.log("Game over sound loaded successfully during preload");
+                });
+                this.load.on('filecomplete-audio-victory', () => {
+                    console.log("Victory sound loaded successfully during preload");
+                });
+                this.load.on('loaderror', (file) => {
+                    console.error("Load error for file:", file.key, file.src);
+                    if (file.key === 'coin_collect') {
+                        console.warn("Coin collect sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'zombie_eat') {
+                        console.warn("Zombie eat sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'silent') {
+                        console.warn("Silent sound not found! Audio context warm-up will be skipped.");
+                    }
+                    if (file.key === 'plant_place') {
+                        console.warn("Plant place sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'richard_shoot') {
+                        console.warn("Richard shoot sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'trump_shoot') {
+                        console.warn("Trump shoot sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'elon_shoot') {
+                        console.warn("Elon shoot sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'swag_shoot') {
+                        console.warn("Swag shoot sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'zombie_die') {
+                        console.warn("Zombie die sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'game_over') {
+                        console.warn("Game over sound not found! Sound will be silent.");
+                    }
+                    if (file.key === 'victory') {
+                        console.warn("Victory sound not found! Sound will be silent.");
+                    }
+                });
+            }
+            create() {
+                console.log("GameScene create called, Difficulty: " + difficulty);
+                const tileHeight = 60;
+                const gridOffsetX = 240;
+                const gridOffsetY = 150;
+
+                console.log("Checking swagWave texture:", this.textures.exists('swagWave'));
+
+                const vaultX = 120;
+                this.vaultY = gridOffsetY + 5 * tileHeight + 10; // Set as class property
+                console.log("Checking newVault texture:", this.textures.exists('newVault'));
+                let vaultImage = this.add.image(vaultX, this.vaultY, 'newVault')
+                    .setOrigin(0.5, 1)
+                    .setScale(1.26);
+                vaultImage.setDepth(10);
+                console.log("Vault image object created at x:", vaultX, "y:", this.vaultY);
+                if (!this.textures.exists('newVault') || !this.textures.get('newVault').getSourceImage()) {
+                    console.error("Vault image failed to load or render at x:", vaultX, "y:", this.vaultY, "- Check assets/new_vault.png integrity or format");
+                    const placeholder = this.add.rectangle(vaultX, this.vaultY, 100, 100, 0xff0000);
+                    placeholder.setOrigin(0.5, 1);
+                    placeholder.setDepth(11);
+                    const placeholderText = this.add.text(vaultX, this.vaultY + 20, 'Vault Missing', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5, 0);
+                    placeholderText.setDepth(12);
+                    console.log("Added red placeholder for missing vault image at x:", vaultX, "y:", this.vaultY);
+                } else {
+                    console.log("newVault image rendered successfully at x:", vaultX, "y:", this.vaultY);
+                }
+
+                const debugRect = this.add.rectangle(vaultX, this.vaultY, 100, 100, 0x00ff00, 0.3);
+                debugRect.setOrigin(0.5, 1);
+                debugRect.setDepth(9);
+                console.log("Added green debug rectangle at vault position x:", vaultX, "y:", this.vaultY);
+                const gridGraphics = this.add.graphics();
+                gridGraphics.setDepth(0);
+
+                gridGraphics.fillStyle(0x1a1a1a, 0.5);
+                gridGraphics.fillRect(gridOffsetX, gridOffsetY, 11 * this.tileWidth, 5 * tileHeight);
+
+                gridGraphics.lineStyle(2, 0x555555, 1);
+                for (let col = 0; col <= 11; col++) {
+                    const x = gridOffsetX + col * this.tileWidth;
+                    gridGraphics.beginPath();
+                    gridGraphics.moveTo(x, gridOffsetY);
+                    gridGraphics.lineTo(x, gridOffsetY + 5 * tileHeight);
+                    gridGraphics.strokePath();
+                }
+                for (let row = 0; row <= 5; row++) {
+                    const y = gridOffsetY + row * tileHeight;
+                    gridGraphics.beginPath();
+                    gridGraphics.moveTo(gridOffsetX, y);
+                    gridGraphics.lineTo(gridOffsetX + 11 * this.tileWidth, y);
+                    gridGraphics.strokePath();
+                }
+
+                gridGraphics.lineStyle(1, 0x888888, 0.5);
+                gridGraphics.beginPath();
+                gridGraphics.moveTo(gridOffsetX + 11 * this.tileWidth, gridOffsetY);
+                gridGraphics.lineTo(gridOffsetX + 11 * this.tileWidth, gridOffsetY + 5 * tileHeight);
+                gridGraphics.strokePath();
+
+                const gridBottomY = gridOffsetY + 5 * tileHeight;
+                console.log("Grid bottom calculated at y:", gridBottomY);
+
+                for (let row = 0; row < 5; row++) {
+                    hexGrid[row] = [];
+                    for (let col = 0; col < 11; col++) {
+                        let x = gridOffsetX + col * this.tileWidth + this.tileWidth / 2;
+                        let y = gridOffsetY + row * tileHeight + tileHeight / 2;
+                        let tile = this.add.rectangle(x, y, this.tileWidth, tileHeight, 0x000000, 0).setInteractive();
+
+                        const tileGraphics = this.add.graphics();
+                        tileGraphics.setDepth(-1);
+                        tileGraphics.fillGradientStyle(0x333333, 0x333333, 0x444444, 0x444444, 1);
+                        tileGraphics.fillRect(x - this.tileWidth / 2, y - tileHeight / 2, this.tileWidth, tileHeight);
+
+                        tile.setData('row', row);
+                        tile.setData('col', col);
+                        tile.setData('occupied', false);
+                        hexGrid[row][col] = tile;
+                        console.log("Tile created at x:", x, "y:", y, "row:", row, "col:", col);
+
+                        tile.on('pointerdown', () => {
+                            if (!tile.getData('occupied') && selectedPlant && !gameOver && !gameWon) {
+                                this.placePlant(tile.getData('row'), tile.getData('col'), tile, selectedPlant);
+                                if (currentFlashTween) {
+                                    currentFlashTween.stop();
+                                    currentFlashTween = null;
+                                }
+                                this.richardPlantSelect.alpha = 1;
+                                this.trumpPlantSelect.alpha = 1;
+                                this.elonPlantSelect.alpha = 1;
+                                if (plantUnlocks.swag) this.swagPlantSelect.alpha = 1;
+                            }
+                        });
+                    }
+                }
+                this.tweens.add({
+                    targets: hexGrid.flat(),
+                    duration: 1000,
+                    alpha: 0.5,
+                    yoyo: true,
+                    repeat: -1
+                });
+                uiGraphics = this.add.graphics();
+                uiGraphics.setDepth(1);
+
+                uiGraphics.fillStyle(0x000000, 0.7);
+                uiGraphics.fillRect(gridOffsetX - 10, 10, 200, 40);
+                hexCurrency = 50;
+                this.hexCurrencyText = this.add.text(gridOffsetX, 20, 'Coin: ' + hexCurrency, {
+                    fontSize: '20px',
+                    color: '#ffd700',
+                    fontStyle: 'bold'
+                });
+                this.hexCurrencyText.setDepth(2);
+                this.tweens.add({
+                    targets: this.hexCurrencyText,
+                    alpha: 0.8,
+                    duration: 500,
+                    yoyo: true,
+                    repeat: -1
+                });
+
+                uiGraphics.fillStyle(0x000000, 0.7);
+                uiGraphics.fillRect(gridOffsetX - 10, 50, 200, 40);
+                waveText = this.add.text(gridOffsetX, 60, 'Wave: 0/10', {
+                    fontSize: '20px',
+                    color: '#00ff00',
+                    fontStyle: 'bold'
+                });
+                waveText.setDepth(2);
+                this.tweens.add({
+                    targets: waveText,
+                    alpha: 0.8,
+                    duration: 1000,
+                    yoyo: true,
+                    repeat: -1
+                });
+
+                const gridCenterX = gridOffsetX + (11 * this.tileWidth) / 2;
+
+                this.gameTitleText = this.add.text(gridCenterX, 10, 'Chads vs. Cronies', {
+                    fontSize: '32px',
+                    color: '#8000ff',
+                    fontStyle: 'bold',
+                    stroke: '#ffffff',
+                    strokeThickness: 3,
+                    shadow: { offsetX: 1, offsetY: 1, color: '#000000', blur: 1, fill: true }
+                }).setOrigin(0.5, 0);
+                this.gameTitleText.setDepth(2);
+                this.tweens.add({
+                    targets: this.gameTitleText,
+                    scale: 1.05,
+                    duration: 1000,
+                    yoyo: true,
+                    repeat: -1
+                });
+                console.log("Game title 'Chads vs. Cronies' added to main game screen at x:", gridCenterX, "y: 10");
+
+                uiGraphics.fillStyle(0x000000, 0.7);
+                uiGraphics.fillRect(gridCenterX - 100, 40, 200, 40);
+                stageText = this.add.text(gridCenterX, 50, 'Stage: ' + currentStage + ' (' + difficulty + ')', {
+                    fontSize: '24px',
+                    color: '#ff00ff',
+                    fontStyle: 'bold'
+                }).setOrigin(0.5, 0);
+                stageText.setDepth(2);
+                this.tweens.add({
+                    targets: stageText,
+                    scale: 1.1,
+                    duration: 1000,
+                    yoyo: true,
+                    repeat: -1
+                });
+                console.log("Stage text added at x:", gridCenterX, "y: 50");
+                this.plantOffsetX = gridOffsetX + this.tileWidth / 2;
+                this.richardPlantSelect = this.add.image(this.plantOffsetX, 550, 'richardPlant').setScale(0.5).setInteractive();
+                let richardCostText = this.add.text(this.plantOffsetX, 580, '50 Coin', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5);
+                this.richardPlantSelect.setDepth(2);
+                richardCostText.setDepth(2);
+                this.richardPlantSelect.on('pointerdown', () => {
+                    if (!gameOver && !gameWon) {
+                        if (selectedPlant === 'richardPlant') {
+                            selectedPlant = null;
+                            if (currentFlashTween) {
+                                currentFlashTween.stop();
+                                currentFlashTween = null;
+                            }
+                            this.richardPlantSelect.alpha = 1;
+                            console.log("Deselected Richard Plant");
+                        } else {
+                            selectedPlant = 'richardPlant';
+                            console.log("Selected Richard Plant");
+                            if (currentFlashTween) currentFlashTween.stop();
+                            currentFlashTween = this.tweens.add({
+                                targets: this.richardPlantSelect,
+                                alpha: 0.5,
+                                duration: 500,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                            this.trumpPlantSelect.alpha = 1;
+                            this.elonPlantSelect.alpha = 1;
+                            if (plantUnlocks.swag) this.swagPlantSelect.alpha = 1;
+                        }
+                    }
+                });
+
+                this.trumpPlantSelect = this.add.image(this.plantOffsetX + 2 * this.tileWidth, 550, 'trumpPlant').setScale(0.5).setInteractive();
+                let trumpCostText = this.add.text(this.plantOffsetX + 2 * this.tileWidth, 580, '100 Coin', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5);
+                this.trumpPlantSelect.setDepth(2);
+                trumpCostText.setDepth(2);
+                this.trumpPlantSelect.on('pointerdown', () => {
+                    if (!gameOver && !gameWon) {
+                        if (selectedPlant === 'trumpPlant') {
+                            selectedPlant = null;
+                            if (currentFlashTween) {
+                                currentFlashTween.stop();
+                                currentFlashTween = null;
+                            }
+                            this.trumpPlantSelect.alpha = 1;
+                            console.log("Deselected Trump Plant");
+                        } else {
+                            selectedPlant = 'trumpPlant';
+                            console.log("Selected Trump Plant");
+                            if (currentFlashTween) currentFlashTween.stop();
+                            currentFlashTween = this.tweens.add({
+                                targets: this.trumpPlantSelect,
+                                alpha: 0.5,
+                                duration: 500,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                            this.richardPlantSelect.alpha = 1;
+                            this.elonPlantSelect.alpha = 1;
+                            if (plantUnlocks.swag) this.swagPlantSelect.alpha = 1;
+                        }
+                    }
+                });
+
+                this.elonPlantSelect = this.add.image(this.plantOffsetX + 4 * this.tileWidth, 550, 'elonPlant').setScale(0.5).setInteractive();
+                let elonCostText = this.add.text(this.plantOffsetX + 4 * this.tileWidth, 580, '150 Coin', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5);
+                this.elonPlantSelect.setDepth(2);
+                elonCostText.setDepth(2);
+                this.elonPlantSelect.on('pointerdown', () => {
+                    if (!gameOver && !gameWon) {
+                        if (selectedPlant === 'elonPlant') {
+                            selectedPlant = null;
+                            if (currentFlashTween) {
+                                currentFlashTween.stop();
+                                currentFlashTween = null;
+                            }
+                            this.elonPlantSelect.alpha = 1;
+                            console.log("Deselected Elon Plant");
+                        } else {
+                            selectedPlant = 'elonPlant';
+                            console.log("Selected Elon Plant");
+                            if (currentFlashTween) currentFlashTween.stop();
+                            currentFlashTween = this.tweens.add({
+                                targets: this.elonPlantSelect,
+                                alpha: 0.5,
+                                duration: 500,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                            this.richardPlantSelect.alpha = 1;
+                            this.trumpPlantSelect.alpha = 1;
+                            if (plantUnlocks.swag) this.swagPlantSelect.alpha = 1;
+                        }
+                    }
+                });
+
+                this.swagPlantSelect = this.add.image(this.plantOffsetX + 6 * this.tileWidth, 550, 'swag').setScale(0.5).setInteractive().setVisible(false);
+                let swagCostText = this.add.text(this.plantOffsetX + 6 * this.tileWidth, 580, '200 Coin', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setVisible(false);
+                this.swagPlantSelect.setDepth(2);
+                swagCostText.setDepth(2);
+                this.swagPlantSelect.on('pointerdown', () => {
+                    if (!gameOver && !gameWon && plantUnlocks.swag) {
+                        if (selectedPlant === 'swag') {
+                            selectedPlant = null;
+                            if (currentFlashTween) {
+                                currentFlashTween.stop();
+                                currentFlashTween = null;
+                            }
+                            this.swagPlantSelect.alpha = 1;
+                            console.log("Deselected Swag Plant");
+                        } else {
+                            selectedPlant = 'swag';
+                            console.log("Selected Swag Plant");
+                            if (currentFlashTween) currentFlashTween.stop();
+                            currentFlashTween = this.tweens.add({
+                                targets: this.swagPlantSelect,
+                                alpha: 0.5,
+                                duration: 500,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                            this.richardPlantSelect.alpha = 1;
+                            this.trumpPlantSelect.alpha = 1;
+                            this.elonPlantSelect.alpha = 1;
+                        }
+                    }
+                });
+
+                const creditX = 900;
+                const creditY = 570;
+                this.panosLink = this.add.text(creditX, creditY, 'Panos', {
+                    fontSize: '16px',
+                    color: '#ffffff',
+                    fontStyle: 'bold'
+                }).setOrigin(1, 0.5).setDepth(102).setInteractive();
+                this.creditText = this.add.text(creditX - this.panosLink.width - 2, creditY, 'Created by ', {
+                    fontSize: '16px',
+                    color: '#808080',
+                    fontStyle: 'bold'
+                }).setOrigin(1, 0.5).setDepth(102);
+
+                try {
+                    this.panosLink.on('pointerover', () => {
+                        console.log("Mouse hovering over Panos, current color:", this.panosLink.style.color);
+                        this.panosLink.setStyle({ color: '#8000ff', fontSize: '16px', fontStyle: 'bold' });
+                    });
+
+                    this.panosLink.on('pointerout', () => {
+                        console.log("Mouse moved off Panos, resetting color, current color:", this.panosLink.style.color);
+                        this.panosLink.setStyle({ color: '#ffffff', fontSize: '16px', fontStyle: 'bold' });
+                        this.panosLink.setText('Panos');
+                        console.log("Panos color after reset:", this.panosLink.style.color);
+                    });
+
+                    this.panosLink.on('pointerdown', () => {
+                        console.log("Panos link clicked! Opening https://x.com/stridentcitizen");
+                        window.open('https://x.com/stridentcitizen', '_blank');
+                    });
+                } catch (error) {
+                    console.error("Error in panosLink event handling:", error);
+                    this.panosLink.setInteractive(false);
+                }
+
+                // Initialize sound effects
+                this.sound.pauseOnBlur = false; // Prevent sound from pausing when window loses focus
+                this.coinSound = this.sound.add('coin_collect', { volume: 0.5 });
+                this.eatSound = this.sound.add('zombie_eat', { volume: 0.5, loop: false });
+                this.plantPlaceSound = this.sound.add('plant_place', { volume: 0.5 });
+                this.richardShootSound = this.sound.add('richard_shoot', { volume: 0.5 });
+                this.trumpShootSound = this.sound.add('trump_shoot', { volume: 0.5 });
+                this.elonShootSound = this.sound.add('elon_shoot', { volume: 0.5 });
+                this.swagShootSound = this.sound.add('swag_shoot', { volume: 0.5 });
+                this.zombieDieSound = this.sound.add('zombie_die', { volume: 0.5 });
+                this.gameOverSound = this.sound.add('game_over', { volume: 0.5 });
+                this.victorySound = this.sound.add('victory', { volume: 0.5 });
+
+                // Validate sound initialization
+                if (!this.coinSound) console.warn("Coin sound failed to load.");
+                if (!this.eatSound) console.warn("Eat sound failed to load.");
+                if (!this.plantPlaceSound) console.warn("Plant place sound failed to load.");
+                if (!this.richardShootSound) console.warn("Richard shoot sound failed to load.");
+                if (!this.trumpShootSound) console.warn("Trump shoot sound failed to load.");
+                if (!this.elonShootSound) console.warn("Elon shoot sound failed to load.");
+                if (!this.swagShootSound) console.warn("Swag shoot sound failed to load.");
+                if (!this.zombieDieSound) console.warn("Zombie die sound failed to load.");
+                if (!this.gameOverSound) console.warn("Game over sound failed to load.");
+                if (!this.victorySound) console.warn("Victory sound failed to load.");
+
+                // Warm up the audio context by playing a silent sound if available
+                if (this.cache.audio.exists('silent')) {
+                    const silentSound = this.sound.add('silent', { volume: 0 });
+                    silentSound.play();
+                    console.log("Played silent sound to warm up audio context at time:", this.time.now);
+                } else {
+                    console.warn("Silent sound not found in cache. Audio context warm-up skipped.");
+                }
+
+                // Add event listener to log when coin sound actually starts playing
+                this.coinSound.on('play', () => {
+                    console.log("Coin sound actually started playing at time:", performance.now());
+                });
+
+                this.currentSpawnDelayMin = this.getSpawnDelayMin();
+                this.currentSpawnDelayMax = this.getSpawnDelayMax();
+                console.log(`Initial spawn delays - Min: ${this.currentSpawnDelayMin}, Max: ${this.currentSpawnDelayMax}`);
+
+                this.hexDropEvent = this.time.addEvent({
+                    delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                    callback: this.spawnHexDrop,
+                    callbackScope: this,
+                    loop: true
+                });
+
+                this.zombieSpawnEvent = this.time.addEvent({
+                    delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                    callback: this.spawnZombie,
+                    callbackScope: this,
+                    loop: true
+                });
+
+                console.log("GameScene create completed");
+            }
+            getSpawnDelayMin() {
+                let baseMin = 5000;
+                if (difficulty === 'Easy') baseMin += 1000;
+                else if (difficulty === 'Hard') baseMin -= 500;
+                if (currentStage >= 8) {
+                    return Math.max(6000, baseMin);
+                } else if (currentStage >= 7) {
+                    return Math.max(5500, baseMin);
+                } else {
+                    return Math.max(baseMin - (currentStage * 500), baseMin);
+                }
+            }
+
+            getSpawnDelayMax() {
+                let baseMax = 10000;
+                if (difficulty === 'Easy') baseMax += 2000;
+                else if (difficulty === 'Hard') baseMax -= 1000;
+                return baseMax - (currentStage * 500);
+            }
+
+            update(time) {
+                if (gameOver) {
+                    console.log("Game over condition triggered, halting update loop");
+                    // Stop all eating sounds when game is over
+                    this.activeEatSounds.forEach(sound => {
+                        if (sound.isPlaying) sound.stop();
+                    });
+                    this.activeEatSounds.clear();
+                    return;
+                }
+
+                console.log(`Update loop - Stage: ${currentStage}, Wave: ${waveCount}, Zombies: ${zombies.length}, Time: ${time}`);
+                hexDrops = hexDrops.filter(drop => drop.active);
+
+                if (rateHikeActive) {
+                    if (time - rateHikeStart >= RATE_HIKE_DURATION) {
+                        rateHikeActive = false;
+                        console.log("Rate hike ended at time:", time);
+                    }
+                }
+
+                if (this.panosLink && this.panosLink.style.color !== '#ffffff') {
+                    console.log("Forcing Panos color reset in update loop, current color:", this.panosLink.style.color);
+                    this.panosLink.setStyle({ color: '#ffffff', fontSize: '16px', fontStyle: 'bold' });
+                    this.panosLink.setText('Panos');
+                }
+
+                plants.forEach(plant => {
+                    let lastAttack = plant.getData('lastAttack');
+                    let cooldown = plant.getData('attackCooldown');
+                    if (time - lastAttack >= cooldown) {
+                        plant.setData('lastAttack', time);
+                        this.spawnWave(plant);
+                    }
+                });
+
+                let plantsToDestroy = [];
+
+                zombies.forEach(zombie => {
+                    if (!zombie.active) return;
+                    let speed = zombie.getData('speed') / 60;
+                    let type = zombie.getData('type');
+
+                    if (!zombie.getData('eating')) {
+                        plants.forEach(plant => {
+                            if (plant.active && Math.abs(zombie.x - plant.x) < 30 && Math.abs(zombie.y - plant.y) < 30) {
+                                zombie.setData('eating', true);
+                                zombie.setData('eatStartTime', time);
+                                zombie.setData('targetPlant', plant);
+                                zombie.setData('shakeTween', this.tweens.add({
+                                    targets: zombie,
+                                    x: { value: zombie.x - 5, yoyo: true },
+                                    duration: 100,
+                                    repeat: -1,
+                                    onYoyo: () => {
+                                        zombie.x += 10;
+                                    }
+                                }));
+                                if (this.eatSound) {
+                                    const soundInstance = this.sound.add('zombie_eat', { volume: 0.5, loop: false });
+                                    soundInstance.play();
+                                    this.activeEatSounds.set(zombie, soundInstance); // Track the sound instance
+                                }
+                                console.log(`Zombie (${type}) at x:${zombie.x}, y:${zombie.y} started eating plant at x:${plant.x}, y:${plant.y} at time ${time}`);
+                                return;
+                            }
+                        });
+                    }
+
+                    if (zombie.getData('eating')) {
+                        let eatStartTime = zombie.getData('eatStartTime');
+                        let targetPlant = zombie.getData('targetPlant');
+                        if (targetPlant && targetPlant.active) {
+                            let eatingZombies = zombies.filter(z => z.active && z.getData('eating') && z.getData('targetPlant') === targetPlant).length;
+                            let baseEatTime = 5000;
+                            let adjustedEatTime = baseEatTime / Math.max(1, eatingZombies);
+                            if (time - eatStartTime >= adjustedEatTime) {
+                                let shakeTween = zombie.getData('shakeTween');
+                                if (shakeTween) {
+                                    shakeTween.stop();
+                                    zombie.setData('shakeTween', null);
+                                }
+                                if (!plantsToDestroy.includes(targetPlant)) {
+                                    plantsToDestroy.push(targetPlant);
+                                }
+                                zombie.setData('eating', false);
+                                zombie.setData('targetPlant', null);
+                                // Stop the eating sound for this zombie
+                                if (this.activeEatSounds.has(zombie)) {
+                                    const soundInstance = this.activeEatSounds.get(zombie);
+                                    if (soundInstance.isPlaying) soundInstance.stop();
+                                    this.activeEatSounds.delete(zombie);
+                                }
+                                console.log(`Zombie (${type}) finished eating at x:${zombie.x}, y:${zombie.y} at time ${time}, adjusted time: ${adjustedEatTime}ms`);
+                            } else {
+                                speed = 0;
+                            }
+                        } else {
+                            let shakeTween = zombie.getData('shakeTween');
+                            if (shakeTween) {
+                                shakeTween.stop();
+                                zombie.setData('shakeTween', null);
+                            }
+                            zombie.setData('eating', false);
+                            zombie.setData('targetPlant', null);
+                            // Stop the eating sound if plant is invalid
+                            if (this.activeEatSounds.has(zombie)) {
+                                const soundInstance = this.activeEatSounds.get(zombie);
+                                if (soundInstance.isPlaying) soundInstance.stop();
+                                this.activeEatSounds.delete(zombie);
+                            }
+                            console.log(`Zombie (${type}) stopped eating due to invalid target plant at time ${time}`);
+                        }
+                    } else if (!zombie.getData('eating')) {
+                        if (type === 'warren' && zombie.getData('shieldActive')) {
+                            let shieldStart = zombie.getData('shieldStart');
+                            if (time - shieldStart >= zombie.getData('shieldDuration')) {
+                                zombie.setData('shieldActive', false);
+                                console.log("Elizabeth Warren's regulation shield dropped at time:", time);
+                            } else {
+                                plants.forEach(p => {
+                                    if (Math.abs(p.x - zombie.x) < 100 && Math.abs(p.y - zombie.y) < 100) {
+                                        p.setData('lastAttack', time - 5000);
+                                    }
+                                });
+                            }
+                        }
+
+                        if (type === 'sbf' && zombie.getData('panicCount') < 3 && Math.random() < 0.3) {
+                            zombie.setData('speed', 30);
+                            zombie.setData('panicCount', zombie.getData('panicCount') + 1);
+                            console.log("SBF panicking, speed:", zombie.getData('speed'));
+                        } else if (type === 'sbf' && zombie.getData('panicCount') >= 3) {
+                            zombie.setData('speed', 15);
+                        }
+
+                        zombie.x -= speed;
+                        let newCol = Math.max(0, Math.floor((zombie.x - 240) / 60));
+                        zombie.setData('col', newCol);
+                        if (zombie.x <= 120 && !gameOver) {
+                            gameOver = true;
+                            console.log("Zombie reached halfway over the vault at x:", zombie.x, "setting gameOver to true");
+                            uiGraphics.clear();
+                            resultText = this.add.text(570, 200, 'GAME OVER', {
+                                fontSize: '64px',
+                                color: '#ff0000',
+                                fontStyle: 'bold',
+                                stroke: '#ffffff',
+                                strokeThickness: 5,
+                                shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
+                            }).setOrigin(0.5).setDepth(100);
+                            gameOverImage = this.add.image(570, 400, 'richardCry').setScale(0.5).setOrigin(0.5).setDepth(100);
+                            this.tweens.add({
+                                targets: gameOverImage,
+                                scale: 0.55,
+                                duration: 500,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                            // Play game over sound
+                            if (this.gameOverSound) {
+                                this.gameOverSound.play();
+                                console.log("Game over sound played at time:", performance.now());
+                            }
+                            console.log("Game Over screen displayed");
+
+                            this.time.delayedCall(3000, () => {
+                                waveCount = 0;
+                                firstZombieSpawned = false;
+                                currentStage = 1;
+                                this.stageWaveCounter = 0;
+                                hexCurrency = 50;
+                                this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                                stageText.setText('Stage: ' + currentStage + ' (' + difficulty + ')');
+                                gameOver = false;
+                                resultText.destroy();
+                                gameOverImage.destroy();
+                                uiGraphics.clear();
+                                plants.forEach(plant => plant.destroy());
+                                plants = [];
+                                hexGrid.forEach(row => row.forEach(tile => tile.setData('occupied', false)));
+                                zombies.forEach(zombie => {
+                                    if (zombie.getData('healthBar')) zombie.getData('healthBar').destroy();
+                                    if (zombie.getData('shakeTween')) {
+                                        zombie.getData('shakeTween').stop();
+                                    }
+                                    // Stop any eating sound for this zombie on game over
+                                    if (this.activeEatSounds.has(zombie)) {
+                                        const soundInstance = this.activeEatSounds.get(zombie);
+                                        if (soundInstance.isPlaying) soundInstance.stop();
+                                        this.activeEatSounds.delete(zombie);
+                                    }
+                                    zombie.destroy();
+                                });
+                                zombies = [];
+                                inflationTexts.forEach(item => item.text.destroy());
+                                inflationTexts = [];
+                                hexDrops.forEach(drop => drop.destroy());
+                                hexDrops = [];
+                                this.time.removeAllEvents();
+                                this.currentSpawnDelayMin = this.getSpawnDelayMin();
+                                this.currentSpawnDelayMax = this.getSpawnDelayMax();
+                                this.hexDropEvent = this.time.addEvent({
+                                    delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                                    callback: this.spawnHexDrop,
+                                    callbackScope: this,
+                                    loop: true
+                                });
+                                this.zombieSpawnEvent = this.time.addEvent({
+                                    delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                                    callback: this.spawnZombie,
+                                    callbackScope: this,
+                                    loop: true
+                                });
+                                waveText.setText('Wave: 0/10');
+                                console.log("Game reset to Stage 1 with 50 coins");
+                            }, [], this);
+                        }
+                    }
+
+                    const healthBar = zombie.getData('healthBar');
+                    if (healthBar) {
+                        this.drawHealthBar(healthBar, zombie, zombie.getData('health'));
+                    }
+
+                    inflationTexts.forEach(item => {
+                        if (item.zombie === zombie) {
+                            item.text.x = zombie.x;
+                            item.text.y = zombie.y - 30;
+                        }
+                    });
+                });
+
+                plantsToDestroy.forEach(plant => {
+                    if (plant.active) {
+                        let row = plant.getData('row');
+                        let col = plant.getData('col');
+                        plant.destroy();
+                        console.log(`Plant destroyed at x:${plant.x}, y:${plant.y} at time ${time}`);
+                        if (row !== undefined && col !== undefined) {
+                            hexGrid[row][col].setData('occupied', false);
+                        }
+                        // Stop any eating sounds for zombies targeting this plant
+                        zombies.forEach(zombie => {
+                            if (zombie.getData('targetPlant') === plant && this.activeEatSounds.has(zombie)) {
+                                const soundInstance = this.activeEatSounds.get(zombie);
+                                if (soundInstance.isPlaying) soundInstance.stop();
+                                this.activeEatSounds.delete(zombie);
+                            }
+                        });
+                    }
+                });
+                plants = plants.filter(plant => plant.active);
+
+                waves.forEach(wave => {
+                    if (!wave.active) return;
+                    wave.x += 100 / 60;
+                    if (wave.x > 920) {
+                        wave.destroy();
+                        return;
+                    }
+
+                    for (let i = 0; i < zombies.length; i++) {
+                        let zombie = zombies[i];
+                        if (!zombie.active) continue;
+                        if (zombie.getData('row') === wave.getData('row') && Math.abs(zombie.x - wave.x) < 20) {
+                            let health = zombie.getData('health');
+                            let type = zombie.getData('type');
+                            let damage = wave.getData('damage') || 50;
+                            health -= damage;
+                            zombie.setData('health', health);
+                            wave.destroy();
+
+                            const healthBar = zombie.getData('healthBar');
+                            if (healthBar && health > 0) {
+                                this.drawHealthBar(healthBar, zombie, health);
+                            }
+
+                            if (health <= 0) {
+                                let dropType = zombie.getData('type');
+                                if (dropType === 'gary') {
+                                    this.spawnGaryDrop(zombie.x, zombie.y);
+                                } else if (dropType === 'sbf') {
+                                    this.spawnSbfDrop(zombie.x, zombie.y);
+                                } else if (dropType === 'warren') {
+                                    this.spawnWarrenDrop(zombie.x, zombie.y);
+                                } else if (dropType === 'powell') {
+                                    this.spawnPowellDrop(zombie.x, zombie.y);
+                                    inflationTexts = inflationTexts.filter(item => {
+                                        if (item.zombie === zombie) {
+                                            item.text.destroy();
+                                            return false;
+                                        }
+                                        return true;
+                                    });
+                                } else if (dropType === 'boss') {
+                                    this.spawnBossDrop(zombie.x, zombie.y);
+                                }
+                                if (healthBar) healthBar.destroy();
+                                let shakeTween = zombie.getData('shakeTween');
+                                if (shakeTween) {
+                                    shakeTween.stop();
+                                    zombie.setData('shakeTween', null);
+                                }
+                                // Stop eating sound if zombie dies
+                                if (this.activeEatSounds.has(zombie)) {
+                                    const soundInstance = this.activeEatSounds.get(zombie);
+                                    if (soundInstance.isPlaying) soundInstance.stop();
+                                    this.activeEatSounds.delete(zombie);
+                                }
+                                // Play zombie die sound
+                                if (this.zombieDieSound) {
+                                    this.zombieDieSound.play();
+                                    console.log("Zombie die sound played at time:", performance.now());
+                                }
+                                zombie.destroy();
+                            } else if (health > 0 && zombie.getData('shieldActive') && (type === 'warren' || type === 'boss')) {
+                                zombie.setData('shieldActive', false);
+                                console.log(type + "'s shield dropped after hit at time:", time);
+                            }
+                            return;
+                        }
+                    }
+                });
+
+                let stageInfo = this.getStageWaveInfo(waveCount);
+                stageText.setText('Stage: ' + currentStage + ' (' + difficulty + ')');
+                if (firstZombieSpawned) {
+                    waveText.setText('Wave: ' + stageInfo.stageWave + '/' + stageInfo.stageTotal);
+                }
+                console.log(`Checking victory - Stage: ${currentStage}, Wave: ${stageInfo.stageWave}/${stageInfo.stageTotal}, Zombies remaining: ${zombies.length}`);
+                if (stageInfo.stageWave >= stageInfo.stageTotal && zombies.length === 0 && !gameWon) {
+                    if (!victoryText && !stageVictoryText) {
+                        console.log(`Victory condition met for Stage ${currentStage}!`);
+                        uiGraphics.clear();
+                        victoryText = this.add.text(570, 225, 'Victory', {
+                            fontSize: '64px',
+                            color: '#ff00ff',
+                            fontStyle: 'bold',
+                            stroke: '#ffffff',
+                            strokeThickness: 5,
+                            shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
+                        }).setOrigin(0.5).setDepth(100);
+                        stageVictoryText = this.add.text(570, 300, 'Stage ' + currentStage + ' Complete!', {
+                            fontSize: '48px',
+                            color: '#ff00ff',
+                            fontStyle: 'bold',
+                            stroke: '#ffffff',
+                            strokeThickness: 5,
+                            shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
+                        }).setOrigin(0.5).setDepth(100);
+                        this.tweens.add({
+                            targets: [victoryText, stageVictoryText],
+                            scale: 1.1,
+                            duration: 500,
+                            yoyo: true,
+                            repeat: 1
+                        });
+                        // Play victory sound
+                        if (this.victorySound) {
+                            this.victorySound.play();
+                            console.log("Victory sound played at time:", performance.now());
+                        }
+                        console.log("Stage " + currentStage + " complete, showing victory message");
+
+                        if (currentStage === 3 && !plantUnlocks.swag) {
+                            plantUnlocks.swag = true;
+                            this.swagPlantSelect.setVisible(true);
+                            this.swagPlantSelect.setAlpha(1);
+                            let swagCostText = this.add.text(this.plantOffsetX + 6 * this.tileWidth, 580, '200 Coin', { fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(2);
+                            swagCostText.setVisible(true);
+                        }
+
+                        this.time.delayedCall(VICTORY_DISPLAY_TIME, () => {
+                            if (victoryText) {
+                                victoryText.destroy();
+                                victoryText = null;
+                            }
+                            if (stageVictoryText) {
+                                stageVictoryText.destroy();
+                                stageVictoryText = null;
+                            }
+                            uiGraphics.clear();
+                            console.log("Victory message for Stage " + currentStage + " hidden");
+
+                            plants.forEach(plant => plant.destroy());
+                            plants = [];
+                            hexGrid.forEach(row => row.forEach(tile => tile.setData('occupied', false)));
+                            console.log("Grid reset after Stage " + currentStage);
+
+                            zombies.forEach(zombie => {
+                                if (zombie.getData('healthBar')) zombie.getData('healthBar').destroy();
+                                if (zombie.getData('shakeTween')) {
+                                    zombie.getData('shakeTween').stop();
+                                }
+                                // Stop eating sound on stage reset
+                                if (this.activeEatSounds.has(zombie)) {
+                                    const soundInstance = this.activeEatSounds.get(zombie);
+                                    if (soundInstance.isPlaying) soundInstance.stop();
+                                    this.activeEatSounds.delete(zombie);
+                                }
+                                zombie.destroy();
+                            });
+                            zombies = [];
+                            inflationTexts.forEach(item => item.text.destroy());
+                            inflationTexts = [];
+                            console.log("Zombies and inflation texts reset after Stage " + currentStage);
+
+                            hexDrops.forEach(drop => drop.destroy());
+                            hexDrops = [];
+                            console.log("Drops reset after Stage " + currentStage);
+
+                            waveCount = 0;
+                            firstZombieSpawned = false;
+                            this.stageWaveCounter = 0;
+                            currentStage++;
+                            hexCurrency = 50;
+                            this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                            this.time.removeAllEvents();
+                            this.currentSpawnDelayMin = this.getSpawnDelayMin();
+                            this.currentSpawnDelayMax = this.getSpawnDelayMax();
+                            this.hexDropEvent = this.time.addEvent({
+                                delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                                callback: this.spawnHexDrop,
+                                callbackScope: this,
+                                loop: true
+                            });
+                            this.zombieSpawnEvent = this.time.addEvent({
+                                delay: Phaser.Math.Between(this.currentSpawnDelayMin, this.currentSpawnDelayMax),
+                                callback: this.spawnZombie,
+                                callbackScope: this,
+                                loop: true
+                            });
+                            const newStageTotal = 10 + (currentStage - 1) * 2;
+                            waveText.setText('Wave: 0/' + newStageTotal);
+                            stageText.setText('Stage: ' + currentStage + ' (' + difficulty + ')');
+                            console.log("Progressed to Stage " + currentStage + " with 50 coins and " + newStageTotal + " waves");
+                        }, [], this);
+                    }
+                }
+
+                zombies = zombies.filter(zombie => zombie.active);
+                waves = waves.filter(wave => wave.active);
+            }
+
+            getStageWaveInfo(waveCount) {
+                const stageTotal = 10 + (currentStage - 1) * 2;
+                return { stageWave: waveCount, stageTotal };
+            }
+
+            spawnHexDrop(x = Phaser.Math.Between(780, 885), y = -20, falling = true) {
+                console.log("spawnHexDrop called at time:", this.time.now);
+                let hexDrop = this.add.image(x, y, 'hexDrop').setScale(0.5).setInteractive();
+                if (!hexDrop) {
+                    console.error("Failed to create hexDrop at x:", x, "y:", y, "Time:", this.time.now);
+                    return;
+                }
+                console.log("HexDrop created at x:", x, "y:", y, "Time:", this.time.now);
+                hexDrop.setData('collected', false);
+                hexDrop.setData('coinValue', 25);
+                hexDrop.setDepth(21);
+                hexDrops.push(hexDrop);
+
+                hexDrop.on('pointerdown', () => {
+                    if (!hexDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        hexDrop.setData('collected', true);
+                        let coinGain = hexDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected sky drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        hexDrop.destroy();
+                    }
+                });
+
+                if (falling) {
+                    this.tweens.add({
+                        targets: hexDrop,
+                        y: 620,
+                        duration: 5000,
+                        ease: 'Linear',
+                        onUpdate: () => {
+                            console.log("HexDrop y-position:", hexDrop.y);
+                            zombies.forEach(zombie => {
+                                if (zombie.active && Phaser.Geom.Intersects.RectangleToRectangle(
+                                    new Phaser.Geom.Rectangle(hexDrop.x - 15, hexDrop.y - 15, 30, 30),
+                                    new Phaser.Geom.Rectangle(zombie.x - 30, zombie.y - 30, 60, 60)
+                                )) {
+                                    hexDrop.depth = 22;
+                                }
+                            });
+                            if (hexDrop.y >= 450 && hexDrop.active) {
+                                console.log("HexDrop destroyed at y:", hexDrop.y);
+                                hexDrop.destroy();
+                            }
+                        }
+                    });
+                }
+            }
+
+            placePlant(row, col, tile, plantType) {
+                if (!gameOver && !gameWon) {
+                    let cost = plantType === 'trumpPlant' ? 100 : (plantType === 'elonPlant' ? 150 : (plantType === 'swag' ? 200 : 50));
+                    if (hexCurrency >= cost) {
+                        let xOffset = 0;
+                        if (plantType === 'elonPlant') {
+                            xOffset = 10;
+                        }
+
+                        let plant = this.add.image(tile.x + xOffset, tile.y, plantType)
+                            .setScale(0.5)
+                            .setOrigin(0.5, 0.5);
+                        plant.setData('row', row);
+                        plant.setData('col', col);
+                        plant.setData('lastAttack', 0);
+                        plant.setData('type', plantType);
+                        plant.setData('attackCooldown', plantType === 'trumpPlant' ? 10000 : (plantType === 'elonPlant' ? 15000 : (plantType === 'swag' ? 12000 : 5000)));
+                        plant.setData('attackDamage', plantType === 'trumpPlant' ? 100 : (plantType === 'elonPlant' ? 150 : (plantType === 'swag' ? 200 : 50)));
+                        plants.push(plant);
+
+                        tile.setData('occupied', true);
+                        hexCurrency -= cost;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        selectedPlant = null;
+                        if (currentFlashTween) {
+                            currentFlashTween.stop();
+                            currentFlashTween = null;
+                        }
+                        this.richardPlantSelect.alpha = 1;
+                        this.trumpPlantSelect.alpha = 1;
+                        this.elonPlantSelect.alpha = 1;
+                        if (plantUnlocks.swag) this.swagPlantSelect.alpha = 1;
+
+                        // Play plant placement sound
+                        if (this.plantPlaceSound) {
+                            this.plantPlaceSound.play();
+                            console.log(`Plant placement sound played for ${plantType} at time:`, performance.now());
+                        }
+
+                        console.log(`Placed ${plantType} at tile (row: ${row}, col: ${col}) - Tile x: ${tile.x}, y: ${tile.y}, Plant x: ${plant.x}, y: ${plant.y}`);
+                    } else {
+                        console.log("Not enough Coin for", plantType, "- Need:", cost, "Have:", hexCurrency);
+                    }
+                }
+            }
+
+            spawnZombie() {
+                console.log("spawnZombie called at time:", this.time.now);
+                if (gameOver || gameWon) return;
+
+                let stageInfo = this.getStageWaveInfo(waveCount);
+                if (waveCount >= stageInfo.stageTotal) {
+                    console.log(`Wave count (${waveCount}) reached stage total (${stageInfo.stageTotal}) for Stage ${currentStage}, stopping zombie spawn`);
+                    return;
+                }
+
+                this.stageWaveCounter++;
+                waveCount++;
+                if (!firstZombieSpawned) {
+                    firstZombieSpawned = true;
+                }
+
+                let zombiesToSpawn = 1;
+                if (currentStage > 1) {
+                    const waveDensityFactor = Math.floor(this.stageWaveCounter / 6) + (currentStage - 1);
+                    zombiesToSpawn = 1 + Math.floor(waveDensityFactor / 6);
+                    if (currentStage >= 7) {
+                        zombiesToSpawn = Math.min(zombiesToSpawn, 1);
+                    } else if (currentStage >= 4) {
+                        zombiesToSpawn = Math.min(zombiesToSpawn, difficulty === 'Easy' ? 1 : (difficulty === 'Hard' ? 3 : 2));
+                    } else {
+                        zombiesToSpawn = Math.min(zombiesToSpawn, difficulty === 'Easy' ? 2 : (difficulty === 'Hard' ? 4 : 3));
+                    }
+                }
+
+                console.log(`Spawning ${zombiesToSpawn} zombie(s) - Stage: ${currentStage}, Wave: ${waveCount}/${stageInfo.stageTotal}, Stage Wave Counter: ${this.stageWaveCounter}`);
+
+                for (let i = 0; i < zombiesToSpawn; i++) {
+                    let row = Phaser.Math.Between(0, 4);
+                    let col = 10;
+                    let x = hexGrid[row][col].x;
+                    let y = hexGrid[row][col].y;
+
+                    let zombie;
+                    let zombieType;
+
+                    if (waveCount <= 3) {
+                        zombieType = Phaser.Math.Between(0, 8);
+                        console.log("Wave <= 3, excluding boss: zombieType =", zombieType);
+                    } else if (waveCount === 5 && !hasJeromeSpawned) {
+                        zombieType = 9;
+                        console.log("Forcing Jerome Powell spawn on wave 5");
+                    } else if (currentStage >= 3 && Math.random() < 0.10) {
+                        zombieType = 10;
+                        console.log("Spawning boss zombie at stage:", currentStage);
+                    } else {
+                        zombieType = Phaser.Math.Between(0, 9);
+                        console.log("Wave > 3, normal spawn: zombieType =", zombieType);
+                    }
+
+                    let healthMultiplier;
+                    if (currentStage >= 8) {
+                        healthMultiplier = 1 + (0.03 * 6) + (0.05 * (currentStage - 7));
+                    } else {
+                        healthMultiplier = 1 + 0.03 * (currentStage - 1);
+                    }
+
+                    const stageTotal = stageInfo.stageTotal;
+                    if (currentStage < 5) {
+                        if (waveCount > stageTotal / 2) {
+                            let increase;
+                            if (difficulty === 'Easy') increase = 0.1;
+                            else if (difficulty === 'Hard') increase = 0.25;
+                            else increase = 0.2;
+                            healthMultiplier *= (1 + increase);
+                            console.log(`Wave ${waveCount} is in the second half of Stage ${currentStage} (total waves: ${stageTotal}), applying ${increase * 100}% health increase. New multiplier: ${healthMultiplier}`);
+                        }
+                    } else if (currentStage >= 7) {
+                        const firstThird = Math.floor(stageTotal / 3);
+                        const secondThird = Math.floor((2 * stageTotal) / 3);
+                        if (waveCount > secondThird) {
+                            let increase = difficulty === 'Easy' ? 0.5 : (difficulty === 'Hard' ? 2.0 : 1.5);
+                            healthMultiplier *= (1 + increase);
+                            console.log(`Wave ${waveCount} is in the final third of Stage ${currentStage} (total waves: ${stageTotal}, secondThird: ${secondThird}), applying ${increase * 100}% health increase. New multiplier: ${healthMultiplier}`);
+                        } else if (waveCount > firstThird) {
+                            let increase = difficulty === 'Easy' ? 0.25 : (difficulty === 'Hard' ? 1.0 : 0.75);
+                            healthMultiplier *= (1 + increase);
+                            console.log(`Wave ${waveCount} is in the second third of Stage ${currentStage} (total waves: ${stageTotal}, firstThird: ${firstThird}), applying ${increase * 100}% health increase. New multiplier: ${healthMultiplier}`);
+                        }
+                    } else {
+                        const firstThird = Math.floor(stageTotal / 3);
+                        const secondThird = Math.floor((2 * stageTotal) / 3);
+                        if (waveCount > secondThird) {
+                            let increase;
+                            if (difficulty === 'Easy') increase = 0.1;
+                            else if (difficulty === 'Hard') increase = 0.25;
+                            else increase = 0.2;
+                            healthMultiplier *= (1 + increase) * (1 + increase);
+                            console.log(`Wave ${waveCount} is in the final third of Stage ${currentStage} (total waves: ${stageTotal}, secondThird: ${secondThird}), applying two ${increase * 100}% health increases. New multiplier: ${healthMultiplier}`);
+                        } else if (waveCount > firstThird) {
+                            let increase;
+                            if (difficulty === 'Easy') increase = 0.1;
+                            else if (difficulty === 'Hard') increase = 0.25;
+                            else increase = 0.2;
+                            healthMultiplier *= (1 + increase);
+                            console.log(`Wave ${waveCount} is in the second third of Stage ${currentStage} (total waves: ${stageTotal}, firstThird: ${firstThird}), applying ${increase * 100}% health increase. New multiplier: ${healthMultiplier}`);
+                        }
+                    }
+
+                    let speedMultiplier = 1 + 0.01 * (currentStage - 1);
+
+                    if (zombieType < 3) {
+                        zombie = this.add.image(x, y, 'garyZombie').setScale(0.5);
+                        zombie.setData('type', 'gary');
+                        zombie.setData('speed', 20 * speedMultiplier);
+                        zombie.setData('health', 80 * healthMultiplier);
+                        zombie.setData('maxHealth', 80 * healthMultiplier);
+                    } else if (zombieType < 6) {
+                        zombie = this.add.image(x, y, 'sbfZombie').setScale(0.5);
+                        zombie.setData('type', 'sbf');
+                        zombie.setData('speed', 15 * speedMultiplier);
+                        zombie.setData('health', 160 * healthMultiplier);
+                        zombie.setData('maxHealth', 160 * healthMultiplier);
+                        zombie.setData('panicCount', 0);
+                    } else if (zombieType < 9) {
+                        zombie = this.add.image(x, y, 'warrenZombie').setScale(0.5);
+                        zombie.setData('type', 'warren');
+                        zombie.setData('speed', 10 * speedMultiplier);
+                        zombie.setData('health', 120 * healthMultiplier);
+                        zombie.setData('maxHealth', 120 * healthMultiplier);
+                        zombie.setData('shieldActive', true);
+                        zombie.setData('shieldDuration', 5000);
+                        zombie.setData('shieldStart', this.time.now);
+                    } else if (zombieType === 9) {
+                        zombie = this.add.image(x, y, 'powellZombie').setScale(0.5);
+                        zombie.setData('type', 'powell');
+                        zombie.setData('speed', 15 * speedMultiplier);
+                        zombie.setData('health', 160 * healthMultiplier);
+                        zombie.setData('maxHealth', 160 * healthMultiplier);
+                        zombie.setData('rateHikeActive', true);
+                        zombie.setData('rateHikeStart', this.time.now);
+                        zombie.setData('rateHikeDuration', 5000);
+                        rateHikeActive = true;
+                        rateHikeStart = this.time.now;
+                        hasJeromeSpawned = true;
+                        console.log("Jerome Powell activated rate hike at time:", this.time.now);
+
+                        let inflationText = this.add.text(x, y - 30, 'INFLATION!!', {
+                            fontSize: '20px',
+                            color: '#ff0000',
+                            fontStyle: 'bold'
+                        }).setOrigin(0.5);
+                        inflationText.setDepth(22);
+                        inflationTexts.push({ zombie: zombie, text: inflationText });
+                        let flashTween = this.tweens.add({
+                            targets: inflationText,
+                            alpha: 0.5,
+                            duration: 500,
+                            yoyo: true,
+                            repeat: -1
+                        });
+                    } else if (zombieType === 10) {
+                        zombie = this.add.image(x, y, 'bossZombie').setScale(0.6);
+                        zombie.setData('type', 'boss');
+                        zombie.setData('speed', 12 * speedMultiplier);
+                        zombie.setData('health', 200 * healthMultiplier);
+                        zombie.setData('maxHealth', 200 * healthMultiplier);
+                        zombie.setData('shieldActive', true);
+                        zombie.setData('shieldDuration', 5000);
+                        zombie.setData('shieldStart', this.time.now);
+                    }
+                    if (!zombie) {
+                        console.error("Failed to create zombie of type:", zombieType);
+                        continue;
+                    }
+                    console.log("Zombie created:", zombie.getData('type'), "at x:", x, "y:", y, "Health:", zombie.getData('health'), "Speed:", zombie.getData('speed'));
+                    zombie.setDepth(20);
+                    zombie.setData('row', row);
+                    zombie.setData('col', col);
+                    zombie.setData('eating', false);
+                    const healthBar = this.add.graphics();
+                    healthBar.setDepth(21);
+                    this.drawHealthBar(healthBar, zombie, zombie.getData('health'));
+                    zombie.setData('healthBar', healthBar);
+                    zombies.push(zombie);
+                    console.log("Zombies array length after push:", zombies.length);
+                }
+            }
+            drawHealthBar(graphics, zombie, health) {
+                const maxHealth = zombie.getData('maxHealth');
+                const barWidth = 40;
+                const barHeight = 5;
+                let xOffset = 0;
+
+                const zombieType = zombie.getData('type');
+                if (zombieType === 'powell' || zombieType === 'sbf') {
+                    xOffset = 10;
+                }
+
+                let x = zombie.x - (barWidth / 2) + xOffset;
+                const y = zombie.y + 20;
+
+                graphics.clear();
+                graphics.fillStyle(0x000000, 1);
+                graphics.fillRect(x, y, barWidth, barHeight);
+                const healthPercentage = health / maxHealth;
+                const fillColor = Phaser.Display.Color.Interpolate.ColorWithColor(
+                    Phaser.Display.Color.HexStringToColor('#00ff00'),
+                    Phaser.Display.Color.HexStringToColor('#ff0000'),
+                    1,
+                    1 - healthPercentage
+                );
+                graphics.fillStyle(Phaser.Display.Color.GetColor(fillColor.r, fillColor.g, fillColor.b), 1);
+                graphics.fillRect(x, y, barWidth * healthPercentage, barHeight);
+            }
+
+            spawnWave(plant) {
+                let row = plant.getData('row');
+                let x = plant.x;
+                let y = plant.y;
+                let damage = plant.getData('attackDamage');
+                let plantType = plant.getData('type');
+                console.log(`Spawning wave for plant type: ${plantType}`);
+
+                let waveImage;
+                let shootSound;
+                if (plantType === 'trumpPlant') {
+                    waveImage = 'hamburgerWave';
+                    shootSound = this.trumpShootSound;
+                } else if (plantType === 'elonPlant') {
+                    waveImage = 'rocketWave';
+                    shootSound = this.elonShootSound;
+                } else if (plantType === 'swag') {
+                    waveImage = 'swagWave';
+                    shootSound = this.swagShootSound;
+                } else {
+                    waveImage = 'newWave';
+                    shootSound = this.richardShootSound;
+                }
+
+                console.log(`Selected waveImage: ${waveImage}`);
+
+                if (!this.textures.exists(waveImage)) {
+                    console.error(`Texture ${waveImage} not found! Falling back to 'newWave'.`);
+                    waveImage = 'newWave';
+                }
+
+                let wave = this.add.image(x, y, waveImage).setScale(0.5);
+                wave.setData('row', row);
+                wave.setData('damage', damage);
+                waves.push(wave);
+
+                // Play the appropriate shooting sound
+                if (shootSound) {
+                    shootSound.play();
+                    console.log(`${plantType} shoot sound played at time:`, performance.now());
+                }
+
+                console.log(`Wave spawned with image: ${waveImage} at x: ${x}, y: ${y}`);
+            }
+
+            spawnGaryDrop(x, y) {
+                let garyDrop = this.add.image(x, y, 'garyDrop').setScale(0.5).setInteractive();
+                garyDrop.setData('collected', false);
+                garyDrop.setData('coinValue', 30);
+                garyDrop.setDepth(21);
+                hexDrops.push(garyDrop);
+
+                garyDrop.on('pointerdown', () => {
+                    if (!garyDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        garyDrop.setData('collected', true);
+                        let coinGain = garyDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected Gary drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        garyDrop.destroy();
+                    }
+                });
+
+                this.tweens.add({
+                    targets: garyDrop,
+                    angle: 360,
+                    duration: 1000,
+                    ease: 'Linear',
+                    repeat: -1,
+                    yoyo: true,
+                    hold: 2000
+                });
+            }
+
+            spawnSbfDrop(x, y) {
+                let sbfDrop = this.add.image(x, y, 'sbfDrop').setScale(0.5).setInteractive();
+                sbfDrop.setData('collected', false);
+                sbfDrop.setData('coinValue', 35);
+                sbfDrop.setDepth(21);
+                hexDrops.push(sbfDrop);
+
+                sbfDrop.on('pointerdown', () => {
+                    if (!sbfDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        sbfDrop.setData('collected', true);
+                        let coinGain = sbfDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected SBF drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        sbfDrop.destroy();
+                    }
+                });
+
+                this.tweens.add({
+                    targets: sbfDrop,
+                    angle: 360,
+                    duration: 1000,
+                    ease: 'Linear',
+                    repeat: -1,
+                    yoyo: true,
+                    hold: 2000
+                });
+            }
+
+            spawnWarrenDrop(x, y) {
+                let warrenDrop = this.add.image(x, y, 'warrenDrop').setScale(0.5).setInteractive();
+                warrenDrop.setData('collected', false);
+                warrenDrop.setData('coinValue', 40);
+                warrenDrop.setDepth(21);
+                hexDrops.push(warrenDrop);
+
+                warrenDrop.on('pointerdown', () => {
+                    if (!warrenDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        warrenDrop.setData('collected', true);
+                        let coinGain = warrenDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected Warren drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        warrenDrop.destroy();
+                    }
+                });
+
+                this.tweens.add({
+                    targets: warrenDrop,
+                    angle: 360,
+                    duration: 1000,
+                    ease: 'Linear',
+                    repeat: -1,
+                    yoyo: true,
+                    hold: 2000
+                });
+            }
+
+            spawnPowellDrop(x, y) {
+                let powellDrop = this.add.image(x, y, 'powellDrop').setScale(0.5).setInteractive();
+                powellDrop.setData('collected', false);
+                powellDrop.setData('coinValue', 50);
+                powellDrop.setDepth(21);
+                hexDrops.push(powellDrop);
+
+                powellDrop.on('pointerdown', () => {
+                    if (!powellDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        powellDrop.setData('collected', true);
+                        let coinGain = powellDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected Powell drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        powellDrop.destroy();
+                    }
+                });
+
+                this.tweens.add({
+                    targets: powellDrop,
+                    angle: 360,
+                    duration: 1000,
+                    ease: 'Linear',
+                    repeat: -1,
+                    yoyo: true,
+                    hold: 2000
+                });
+            }
+
+            spawnBossDrop(x, y) {
+                let bossDrop = this.add.image(x, y, 'hexDrop').setScale(0.5).setInteractive();
+                bossDrop.setData('collected', false);
+                bossDrop.setData('coinValue', 75);
+                bossDrop.setDepth(21);
+                hexDrops.push(bossDrop);
+
+                bossDrop.on('pointerdown', () => {
+                    if (!bossDrop.getData('collected')) {
+                        const clickTime = performance.now();
+                        console.log("Coin clicked at time:", clickTime);
+                        bossDrop.setData('collected', true);
+                        let coinGain = bossDrop.getData('coinValue');
+                        coinGain += Math.floor(coinGain * 0.05 * (currentStage - 1));
+                        if (rateHikeActive) coinGain = Math.floor(coinGain / 2);
+                        hexCurrency += coinGain;
+                        this.hexCurrencyText.setText('Coin: ' + hexCurrency);
+                        if (this.coinSound) {
+                            this.coinSound.play();
+                            console.log("Coin collect sound triggered at time:", performance.now());
+                        }
+                        console.log(`Collected Boss drop, gained ${coinGain} coins, total: ${hexCurrency}`);
+                        bossDrop.destroy();
+                    }
+                });
+
+                this.tweens.add({
+                    targets: bossDrop,
+                    angle: 360,
+                    duration: 1000,
+                    ease: 'Linear',
+                    repeat: -1,
+                    yoyo: true,
+                    hold: 2000
+                });
+            }
+        }
+
+        const config = {
+            type: Phaser.AUTO,
+            width: 900,
+            height: 600,
+            parent: 'game-container',
+            scene: [StartScene, GameScene],
+            backgroundColor: '#000000'
+        };
+
+        const game = new Phaser.Game(config);
+        console.log("Phaser game instance created with config:", config);
+    </script>
+</body>
+</html>
