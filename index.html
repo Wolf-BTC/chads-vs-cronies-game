@@ -72,75 +72,78 @@
         let plantUnlocks = { swag: false };
         let difficulty = 'Normal';
         class StartScene extends Phaser.Scene {
-            constructor() {
-                super({ key: 'StartScene' });
-                console.log("StartScene constructor called");
-            }
+    constructor() {
+        super({ key: 'StartScene' });
+        console.log("StartScene constructor called");
+    }
 
-            create() {
-                console.log("StartScene create called");
+    create() {
+        console.log("StartScene create called");
 
-                const graphics = this.add.graphics();
-                graphics.fillStyle(0x000000, 0.8);
-                graphics.fillRect(0, 0, 900, 600);
+        const graphics = this.add.graphics();
+        graphics.fillStyle(0x000000, 0.8);
+        graphics.fillRect(0, 0, 900, 600);
 
-                const gameTitle = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 100, "Chads vs. Cronies", {
-                    fontSize: '64px',
-                    color: '#8000ff',
-                    fontStyle: 'bold',
-                    stroke: '#ffffff',
-                    strokeThickness: 5,
-                    shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
-                }).setOrigin(0.5);
-                console.log("Game title added");
+        // Add "How to Play" instructions
+        this.add.text(this.cameras.main.centerX, 80, 'How to Play: Place Chads to block Cronies and protect the OA vault! Collect coins to upgrade. Pick a difficulty to start!', { fontSize: '16px', fill: '#fff', align: 'center', wordWrap: { width: 600 } }).setOrigin(0.5);
 
-                const difficultyText = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 20, "Select Difficulty:", {
-                    fontSize: '32px',
-                    color: '#ffffff',
-                    fontStyle: 'bold'
-                }).setOrigin(0.5);
+        const gameTitle = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 100, "Chads vs. Cronies", {
+            fontSize: '64px',
+            color: '#8000ff',
+            fontStyle: 'bold',
+            stroke: '#ffffff',
+            strokeThickness: 5,
+            shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 2, fill: true }
+        }).setOrigin(0.5);
+        console.log("Game title added");
 
-                const easyButton = this.add.text(this.cameras.main.centerX - 200, this.cameras.main.centerY + 40, 'Easy', {
-                    fontSize: '28px',
-                    color: '#ffffff',
-                    fontStyle: 'bold',
-                    backgroundColor: '#00ff00',
-                    padding: { x: 20, y: 10 }
-                }).setOrigin(0.5).setInteractive();
-                const normalButton = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY + 40, 'Normal', {
-                    fontSize: '28px',
-                    color: '#ffffff',
-                    fontStyle: 'bold',
-                    backgroundColor: '#ff8c00',
-                    padding: { x: 20, y: 10 }
-                }).setOrigin(0.5).setInteractive();
-                const hardButton = this.add.text(this.cameras.main.centerX + 200, this.cameras.main.centerY + 40, 'Hard', {
-                    fontSize: '28px',
-                    color: '#ffffff',
-                    fontStyle: 'bold',
-                    backgroundColor: '#ff0000',
-                    padding: { x: 20, y: 10 }
-                }).setOrigin(0.5).setInteractive();
+        const difficultyText = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY - 20, "Select Difficulty:", {
+            fontSize: '32px',
+            color: '#ffffff',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
 
-                [easyButton, normalButton, hardButton].forEach(button => {
-                    button.on('pointerover', () => button.setStyle({ color: '#ffd700' }));
-                    button.on('pointerout', () => button.setStyle({ color: '#ffffff' }));
-                    button.on('pointerdown', () => {
-                        difficulty = button.text;
-                        console.log(`Selected difficulty: ${difficulty}`);
-                        this.scene.start('GameScene');
-                    });
-                });
+        const easyButton = this.add.text(this.cameras.main.centerX - 200, this.cameras.main.centerY + 40, 'Easy', {
+            fontSize: '28px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+            backgroundColor: '#00ff00',
+            padding: { x: 20, y: 10 }
+        }).setOrigin(0.5).setInteractive();
+        const normalButton = this.add.text(this.cameras.main.centerX, this.cameras.main.centerY + 40, 'Normal', {
+            fontSize: '28px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+            backgroundColor: '#ff8c00',
+            padding: { x: 20, y: 10 }
+        }).setOrigin(0.5).setInteractive();
+        const hardButton = this.add.text(this.cameras.main.centerX + 200, this.cameras.main.centerY + 40, 'Hard', {
+            fontSize: '28px',
+            color: '#ffffff',
+            fontStyle: 'bold',
+            backgroundColor: '#ff0000',
+            padding: { x: 20, y: 10 }
+        }).setOrigin(0.5).setInteractive();
 
-                this.tweens.add({
-                    targets: [gameTitle, difficultyText, easyButton, normalButton, hardButton],
-                    scale: 1.05,
-                    duration: 1000,
-                    yoyo: true,
-                    repeat: -1
-                });
-            }
-        }
+        [easyButton, normalButton, hardButton].forEach(button => {
+            button.on('pointerover', () => button.setStyle({ color: '#ffd700' }));
+            button.on('pointerout', () => button.setStyle({ color: '#ffffff' }));
+            button.on('pointerdown', () => {
+                difficulty = button.text;
+                console.log(`Selected difficulty: ${difficulty}`);
+                this.scene.start('GameScene');
+            });
+        });
+
+        this.tweens.add({
+            targets: [gameTitle, difficultyText, easyButton, normalButton, hardButton],
+            scale: 1.05,
+            duration: 1000,
+            yoyo: true,
+            repeat: -1
+        });
+    }
+}
         class GameScene extends Phaser.Scene {
             constructor() {
                 super({ key: 'GameScene' });
